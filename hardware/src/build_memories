@@ -1,0 +1,18 @@
+#!/bin/bash
+
+cd bios_mem/
+echo "Building BIOS Block Ram"
+source build | tee ../build_memories.log
+
+cd ../imem_blk_ram/
+echo "Building Instruction Memory Block Ram"
+source build | tee ../build_memories.log
+
+cd ../dmem_blk_ram/
+echo "Building Data Memory Block Ram"
+source build | tee ../build_memories.log
+
+cd ..
+echo "  "
+echo "  "
+echo "build_memory is done! Please check for warnings and/or errors."

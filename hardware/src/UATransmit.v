@@ -21,5 +21,5 @@ module UATransmit(
   localparam  ClockCounterWidth =   `log2(SymbolEdgeTime);
 
   //--|Solution|----------------------------------------------------------------
-
+    assign SOut = 1'b1;
 endmodule

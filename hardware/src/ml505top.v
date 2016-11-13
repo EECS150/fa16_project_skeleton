@@ -1,3 +1,8 @@
+`define BUTTONS_DEBOUNCE_TIME 0.00076
+`define BUTTONS_SATURATE_TIME 0.11364
+`define ROT_EN_DEBOUNCE_TIME 0.000303
+`define ROT_EN_SATURATE_TIME 0.003636
+
 module ml505top (
     input FPGA_SERIAL_RX,       // Serial UART RX line
     output FPGA_SERIAL_TX,      // Serial UART TX line
@@ -20,11 +25,22 @@ module ml505top (
     output GPIO_LED_N,          // Compass North LED
     output GPIO_LED_E,          // Compass East LED
     output GPIO_LED_W,          // Compass West LED
-    output GPIO_LED_S           // Compass South LED
+    output GPIO_LED_S,          // Compass South LED
+
+    // AC97 Protocol Signals
+    input AUDIO_BIT_CLK,
+    input AUDIO_SDATA_IN,
+    output AUDIO_SDATA_OUT,
+    output AUDIO_SYNC,
+    output FLASH_AUDIO_RESET_B
 );
     // CPU clock frequency in Hz (can't be set arbitrarily)
     // Needs to be 600Mhz/x, where x is some integer, by default x = 12
     parameter CPU_CLOCK_FREQ = 50_000_000;
+   localparam integer BUTTONS_DEBOUNCE_TIME = `BUTTONS_DEBOUNCE_TIME*CPU_CLOCK_FREQ;
+   localparam integer BUTTONS_SATURATE_TIME = `BUTTONS_SATURATE_TIME/`BUTTONS_DEBOUNCE_TIME;
+   localparam integer ROT_EN_DEBOUNCE_TIME = `ROT_EN_DEBOUNCE_TIME*CPU_CLOCK_FREQ;
+   localparam integer ROT_EN_SATURATE_TIME = `ROT_EN_SATURATE_TIME/`ROT_EN_DEBOUNCE_TIME;
 
     // Tie the outputs low for checkpoint 1, you can use them for debugging too
     assign PIEZO_SPEAKER = 1'b0;
@@ -81,6 +97,12 @@ module ml505top (
     // Signals from your rotary decoder
     wire rotary_event, rotary_left;
 
+    // AC97 intermediary signals
+    wire bit_clk;
+    wire sync;
+    wire sdata_out;
+    wire reset_b;
+
     // We first pass each one of our asynchronous FPGA inputs through a 1-bit synchronizer
     synchronizer #(
         .width(9)
@@ -92,7 +114,9 @@ module ml505top (
 
     // Our synchronized push button inputs next pass through this multi-signal debouncer which will output a debounced version of each signal
     debouncer #(
-        .width(7)
+        .width(7),
+        .sampling_pulse_period(BUTTONS_DEBOUNCE_TIME),
+        .saturating_counter_max(BUTTONS_SATURATE_TIME)
     ) pushbutton_debouncer (
         .clk(cpu_clk_g),
         .glitchy_signal({rotary_push_sync,button_c_sync,button_n_sync,button_e_sync,button_w_sync,button_s_sync,reset_sync}),
@@ -111,8 +135,8 @@ module ml505top (
     // Debouncer for the rotary wheel inputs
     debouncer #(
         .width(2),
-        .sampling_pulse_period(10000),
-        .saturating_counter_max(12)
+        .sampling_pulse_period(ROT_EN_DEBOUNCE_TIME),
+        .saturating_counter_max(ROT_EN_SATURATE_TIME)
     ) rotary_debouncer (
         .clk(cpu_clk_g),
         .glitchy_signal({rotary_inca_sync,rotary_incb_sync}),
@@ -127,6 +151,47 @@ module ml505top (
         .rotary_sync_B(rotary_incb_deb),
         .rotary_event(rotary_event),
         .rotary_left(rotary_left)
+    );
+
+    // Buffer the AC97 bit clock
+    BUFG BitClockBuffer(.I(AUDIO_BIT_CLK), .O(bit_clk));
+
+    // Route the sdata_out sdata_in, sync, and reset signals through IOBs (input/output blocks)
+    reg sdata_out_iob, sdata_in_iob, sync_iob, reset_b_iob /* synthesis iob="true" */;
+    assign AUDIO_SDATA_OUT = sdata_out_iob;
+    assign AUDIO_SYNC = sync_iob;
+    assign FLASH_AUDIO_RESET_B = reset_b_iob;
+   
+    // Drive sdata_out and sync on the rising edge of the bit_clk
+    always @ (posedge bit_clk) begin
+        sdata_out_iob <= sdata_out;
+        sync_iob <= sync;
+    end
+
+    // Sample sdata_in on the falling edge of the bit_clk
+    always @ (negedge bit_clk) begin
+        sdata_in_iob <= AUDIO_SDATA_IN;
+    end
+
+    // Drive the reset signal through an IOB clocked with the system clock
+    always @ (posedge cpu_clk_g) begin
+      reset_b_iob <= reset_b;
+    end
+
+    ac97_controller #(
+        .SYS_CLK_FREQ(CPU_CLOCK_FREQ)
+    ) audio_controller (
+        .sdata_in(sdata_in_iob),
+        .sdata_out(sdata_out),
+        .bit_clk(bit_clk),
+        .sample_fifo_dout(),
+        .sample_fifo_empty(),
+        .sample_fifo_rd_en(),
+        .sync(sync),
+        .reset_b(reset_b),
+        .volume_control(4'b0),
+        .system_clock(cpu_clk_g),
+        .system_reset(reset)
     );
    
     // RISC-V 151 CPU

@@ -146,9 +146,9 @@ module ac97testbench();
                      .SYS_CLK_FREQ(`SYSTEM_CLK_FREQ))
    AC97(
         .bit_clk(bit_clk),
-        .tone_data(din[din_index]),
-        .fifo_empty(empty),
-        .fifo_rd_en(rd_en),
+        .sample_fifo_dout(din[din_index]),
+        .sample_fifo_empty(empty),
+        .sample_fifo_rd_en(rd_en),
         .sdata_out(dout),
         .sync(sync),
         .reset_b(rst_b),

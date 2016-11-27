@@ -3,36 +3,58 @@
 #include "string.h"
 #include "types.h"
 
-#define AC97_FULL (*((volatile uint32_t*)0x80000040))
-#define AC97_data (*((volatile uint32_t*)0x80000044))
+#define AC97_FULL (*((volatile uint32_t*)0x80000040) & 0x01)
+#define AC97_DATA (*((volatile uint32_t*)0x80000044))
+#define AC97_VOLUME (*((volatile uint32_t*)0x80000048))
+#define GPIO_FIFO_EMPTY (*((volatile uint32_t*)0x80000020) & 0x01)
+#define GPIO_FIFO_DATA (*((volatile uint32_t*)0x80000024))
+#define DIP_SWITCHES (*((volatile uint32_t*)0x80000028) & 0xFF)
 
-#define BUFFER_LEN 128
+// Low and high sample values of the square wave
+#define HIGH_AMPLITUDE 0x20000
+#define LOW_AMPLITUDE -0x20000
 
 typedef void (*entry_t)(void);
 
-void set_period(int tone_period)
-{
-  int32_t counter = 0;
-  int32_t ac_value = tone_period;
-  int8_t buffer[BUFFER_LEN];
+int main(void) {
+    uint32_t tone_period = 54 + 54;
+    uint32_t counter = 0;
 
-  for ( ; ; ) {
-    
-    if(counter >= 54) {
-      counter = 0;
-      ac_value = 0 - ac_value;
+    for ( ; ; ) {
+        // Set the volume of the AC97 headphone codec with the DIP switch setting
+        AC97_VOLUME = DIP_SWITCHES & 0xF;
+
+        // Adjust the tone_period if a rotary wheel spin or push is detected
+        if (!GPIO_FIFO_EMPTY) {
+            uint32_t button_state = GPIO_FIFO_DATA;
+            if ((button_state & 0x1) && (button_state & 0x2)) { // Rotary wheel left spin
+                counter = 0;
+                tone_period += 2;
+            }
+            if (!(button_state & 0x1) && (button_state & 0x2)) { // Rotary wheel right spin
+                counter = 0;
+                tone_period -= 2;
+            }
+            if (button_state & 0x4) { // Rotary wheel push
+                counter = 0;
+                tone_period = 54 + 54;
+            }
+        }
+
+        if (counter < (tone_period >> 1)) {
+            while(AC97_FULL);
+            AC97_DATA = HIGH_AMPLITUDE;
+        }
+        else if (counter >= (tone_period >> 1)) {
+            while(AC97_FULL);
+            AC97_DATA = LOW_AMPLITUDE;
+        }
+        counter++;
+        if (counter >= tone_period) {
+            counter = 0;
+        }
     }
 
-    while(AC97_FULL);
-    AC97_data = ac_value;
-    counter++;
-
-}
-
-int main(void)
-{
-      
-  set_period(250000);
-  return 0;
+    return 0;
 }
 

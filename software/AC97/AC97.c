@@ -9,14 +9,21 @@
 #define GPIO_FIFO_EMPTY (*((volatile uint32_t*)0x80000020) & 0x01)
 #define GPIO_FIFO_DATA (*((volatile uint32_t*)0x80000024))
 #define DIP_SWITCHES (*((volatile uint32_t*)0x80000028) & 0xFF)
+#define LED_CONTROL (*((volatile uint32_t*)0x80000030))
+#define TONE_GEN_OUTPUT_ENABLE (*((volatile uint32_t*)0x80000034))
+#define TONE_GEN_TONE_INPUT (*((volatile uint32_t*)0x80000038))
 
 // Low and high sample values of the square wave
 #define HIGH_AMPLITUDE 0x20000
 #define LOW_AMPLITUDE -0x20000
 
+#define BUFFER_LEN 128
+
 typedef void (*entry_t)(void);
 
 int main(void) {
+    TONE_GEN_OUTPUT_ENABLE = 1;
+    int8_t buffer[BUFFER_LEN];
     uint32_t tone_period = 54 + 54;
     uint32_t counter = 0;
 
@@ -53,8 +60,8 @@ int main(void) {
         if (counter >= tone_period) {
             counter = 0;
         }
+        LED_CONTROL = tone_period;
     }
 
     return 0;
 }
-
